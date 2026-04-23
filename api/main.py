@@ -5,8 +5,6 @@ from fastapi import FastAPI, HTTPException
 
 app = FastAPI()
 
-# 1. Use environment variables for flexibility
-# 2. decode_responses=True automatically converts bytes to strings
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
 
@@ -21,7 +19,7 @@ def create_job():
     try:
         job_id = str(uuid.uuid4())
         
-        # Using a pipeline ensures both commands happen together
+       
         pipe = r.pipeline()
         pipe.lpush("jobs:queue", job_id)
         pipe.hset(f"job:{job_id}", mapping={"status": "queued"})
@@ -33,7 +31,6 @@ def create_job():
 
 @app.get("/jobs/{job_id}")
 def get_job(job_id: str):
-    # Since decode_responses=True, 'status' will be a string or None
     status = r.hget(f"job:{job_id}", "status")
     
     if status is None:

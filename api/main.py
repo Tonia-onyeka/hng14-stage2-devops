@@ -1,22 +1,42 @@
-from fastapi import FastAPI
-import redis
-import uuid
 import os
+import uuid
+import redis
+from fastapi import FastAPI, HTTPException
 
 app = FastAPI()
 
-r = redis.Redis(host="localhost", port=6379)
+# 1. Use environment variables for flexibility
+# 2. decode_responses=True automatically converts bytes to strings
+REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
 
-@app.post("/jobs")
+r = redis.Redis(
+    host=REDIS_HOST, 
+    port=REDIS_PORT, 
+    decode_responses=True  # Fixes the .decode() requirement
+)
+
+@app.post("/jobs", status_code=201)
 def create_job():
-    job_id = str(uuid.uuid4())
-    r.lpush("job", job_id)
-    r.hset(f"job:{job_id}", "status", "queued")
-    return {"job_id": job_id}
+    try:
+        job_id = str(uuid.uuid4())
+        
+        # Using a pipeline ensures both commands happen together
+        pipe = r.pipeline()
+        pipe.lpush("jobs:queue", job_id)
+        pipe.hset(f"job:{job_id}", mapping={"status": "queued"})
+        pipe.execute()
+        
+        return {"job_id": job_id}
+    except redis.ConnectionError:
+        raise HTTPException(status_code=503, detail="Redis storage is unavailable")
 
 @app.get("/jobs/{job_id}")
 def get_job(job_id: str):
+    # Since decode_responses=True, 'status' will be a string or None
     status = r.hget(f"job:{job_id}", "status")
-    if not status:
-        return {"error": "not found"}
-    return {"job_id": job_id, "status": status.decode()}
+    
+    if status is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+        
+    return {"job_id": job_id, "status": status}
